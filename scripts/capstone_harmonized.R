@@ -66,6 +66,7 @@ taxa_data_byspecies <- taxa_data %>%
   filter(!is.na(Species), is.na(Strain)) %>%
   select(Species, everything(), -Kingdom, -Phylum,
          -Class, -Order, -Family, -Genus, -Strain) %>%
+  mutate(Species = sub("^s_+", "", Species)) %>%
   mutate(Species = make.unique(Species)) %>%
   column_to_rownames("Species") %>%
   as.matrix()
@@ -202,3 +203,489 @@ ggplot(df_bf, aes(x = country, y = n, color = Exclusive_breast_feeding)) +
 
 
 
+# Qn 3  ----
+
+## Q3a alpha diversity across countries ----
+alpha_diversity_plot <- function(metadata,
+                                 species,
+                                 group_var,
+                                 facet_ncol = 3,
+                                 add_stats = TRUE) {
+  # packages
+  require(dplyr)
+  require(tidyr)
+  require(ggplot2)
+  require(vegan)
+  require(rstatix)
+  
+  # ---- calculate alpha diversity ----
+  metadata_out <- metadata %>%
+    mutate(
+      richness = specnumber(species, MARGIN = 2),
+      shannon_diversity = diversity(species, index = "shannon", MARGIN = 2),
+      simpson_diversity = diversity(species, index = "simpson", MARGIN = 2)
+    )
+  
+  # ---- reshape for plotting ----
+  plot_df <- metadata_out %>%
+    pivot_longer(
+      cols = c(richness, shannon_diversity, simpson_diversity),
+      names_to = "metric",
+      values_to = "value"
+    )
+  
+  # ---- base plot ----
+  p <- ggplot(
+    plot_df,
+    aes(x = .data[[group_var]], y = value, fill = .data[[group_var]])
+  ) +
+    geom_boxplot() +
+    facet_wrap(~ metric, scales = "free", ncol = facet_ncol) +
+    theme_bw() +
+    theme(
+      legend.position = "none",
+      axis.title = element_blank()
+    )
+  
+  # ---- optional stats ----
+  if (add_stats) {
+    p <- p +
+      stat_compare_means(
+        aes(group = .data[[group_var]]),
+        label = "p.format",
+        hjust = -0.25
+      )
+  }
+  
+  # ---- return both data + plot ----
+  return(
+    list(
+      metadata = metadata_out,
+      plot = p
+    )
+  )
+}
+
+
+res <- alpha_diversity_plot(
+  metadata = metadata_filt,
+  species  = taxa_tss_data,
+  group_var = "country"
+)
+
+# updated metadata with diversity columns
+metadata_filt <- res$metadata
+
+# plot
+res$plot
+
+
+## Q3c beta diversity across countries ----
+beta_diversity_pcoa <- function(metadata,
+                                species,
+                                group_var,
+                                method = c("bray", "jaccard"),
+                                binary = TRUE,
+                                k = 2,
+                                ellipse = TRUE) {
+  # packages
+  require(vegan)
+  require(ggplot2)
+  require(dplyr)
+  
+  method <- match.arg(method)
+  
+  # ---- confirm sample name matches ----
+  
+  stopifnot(
+    identical(rownames(metadata),
+              colnames(species))
+  )
+  
+  # ---- distance matrix ----
+  dist_mat <- vegdist(
+    t(species),
+    method = method,
+    binary = ifelse(method == "jaccard", binary, FALSE)
+  )
+  
+  
+  # ---- PCoA ----
+  pcoa <- cmdscale(dist_mat, k = k, eig = TRUE)
+  
+  # ---- variance explained ----
+  ve <- round(100 * pcoa$eig / sum(pcoa$eig), 1)
+  axis_labels <- paste0(
+    "PCoA", seq_len(k), " (", ve[seq_len(k)], "%)"
+  )
+  
+  # ---- plotting dataframe ----
+  plot_df <- data.frame(
+    PCoA1 = pcoa$points[, 1],
+    PCoA2 = pcoa$points[, 2],
+    country = metadata[[group_var]],
+    age = metadata$age_at_collection
+  )
+  
+  # ---- PCoA plot ----
+  p_country <- ggplot(plot_df,
+                      aes(x = PCoA1,
+                          y = PCoA2,
+                          colour = country)) +
+    geom_point(size = 3, alpha = 0.75) +
+    labs(
+      x = axis_labels[1],
+      y = axis_labels[2],
+      colour = group_var
+    ) +
+    theme_bw()
+  
+  # Ellipses should ONLY apply to country, ellipses on numeric age are meaningless statistically.
+  
+  if (ellipse) {
+    p_country <- p_country + stat_ellipse(show.legend = FALSE)
+  }
+  
+  p_age <- ggplot(plot_df,
+                  aes(x = PCoA1,
+                      y = PCoA2,
+                      colour = age)) +
+    geom_point(size = 3, alpha = 0.75) +
+    scale_colour_gradient(name = "Age") +
+    labs(
+      x = axis_labels[1],
+      y = axis_labels[2]
+    ) +
+    theme_bw()
+  
+  # ---- return everything ----
+  return(
+    list(
+      distance = dist_mat,
+      metadata_for_permanova = metadata,
+      pcoa = pcoa,
+      plot_data = plot_df,
+      plot_country = p_country,
+      plot_age = p_age
+    )
+  )
+}
+
+
+res_bray <- beta_diversity_pcoa(
+  metadata = metadata_filt,
+  species  = taxa_tss_data,
+  group_var = "country",
+  method = "bray"
+)
+
+res_bray$plot_country
+res_bray$plot_age
+
+
+
+res_jaccard <- beta_diversity_pcoa(
+  metadata = metadata_filt,
+  species  = taxa_tss_data,
+  group_var = "country",
+  method = "jaccard"
+)
+
+res_jaccard$plot_country
+res_jaccard$plot_age
+
+
+## Q3d PERMANOVA ----
+
+dist_mat <- res_bray$distance
+meta     <- res_bray$metadata_for_permanova
+
+set.seed(123)
+
+permanova <- adonis2(
+  dist_mat ~
+    age_at_collection +
+    gender +
+    delivery +
+    Exclusive_breast_feeding +
+    abx_first_year +
+    country,
+  data = meta,
+  permutations = 999,
+  by = "terms", 
+  na.action = na.omit
+)
+
+rm(dist_mat, meta, res, res_bray, res_jaccard, permanova)
+
+# Qn 4  ----
+
+
+## Q4a Top 15 species for each country ----
+
+top_species_barplot <- function(metadata,
+                                taxa_data,
+                                group_var,
+                                top_n = 15){
+  
+  require(dplyr)
+  require(ggplot2)
+  require(tibble)
+  require(forcats)
+  
+  # ---- sanity check sample matching ----
+  stopifnot(
+    identical(rownames(metadata),
+              colnames(taxa_data))
+  )
+  
+  groups <- levels(as.factor(metadata[[group_var]]))
+  
+  # ---- Compute top species per group ----
+  top <- lapply(groups, function(g){
+    
+    idx <- which(metadata[[group_var]] == g)
+    
+    taxa_data[, idx] %>%
+      rowMeans(na.rm = TRUE) %>%
+      sort(decreasing = TRUE) %>%
+      head(top_n) %>%
+      enframe(name = "species",
+              value = "mean_abundance") %>%
+      mutate(group = g)
+    
+  }) %>%
+    bind_rows() %>%
+    group_by(group) %>%
+    mutate(
+      species = fct_reorder(species,
+                            mean_abundance,
+                            .desc = TRUE),
+      rank_id = row_number()
+    ) %>%
+    ungroup()
+  
+  # ---- Plot ----
+  p <- ggplot(top,
+              aes(x = group,
+                  y = mean_abundance,
+                  fill = species,
+                  label = rank_id)) +
+    geom_bar(stat = "identity",
+             colour = "black",
+             width = 0.6) +
+    geom_text(position = position_stack(vjust = 0.5),
+              size = 3,
+              colour = "black") +
+    labs(
+      x = NULL,
+      y = "Relative abundance (mean)",
+      fill = "Species"
+    ) +
+    theme_bw()
+  
+  return(
+    list(
+      data = top,
+      plot = p
+    )
+  )
+}
+
+res_top <- top_species_barplot(
+  metadata = metadata_filt,
+  taxa_data = taxa_tss_data,
+  group_var = "country",
+  top_n = 15
+)
+
+res_top$plot
+
+rm(res_top)
+
+## Q4b Masslin2 ----
+
+run_maaslin_country <- function(metadata,
+                                taxa_data,
+                                include_hla = FALSE,
+                                ref_country = "RUS",
+                                prevalence = 0.10,
+                                abundance = 0.001,
+                                q_cutoff = 0.01){
+  
+  require(Maaslin2)
+  require(dplyr)
+  
+  # ---- sanity check ----
+  stopifnot(
+    identical(rownames(metadata),
+              colnames(taxa_data))
+  )
+  
+  # ---- set reference level ----
+  metadata$country <- relevel(
+    as.factor(metadata$country),
+    ref = ref_country
+  )
+  
+  # ---- fixed effects ----
+  base_effects <- c("country",
+                    "age_at_collection",
+                    "gender",
+                    "delivery",
+                    "Exclusive_breast_feeding",
+                    "abx_first_year")
+  
+  if(include_hla){
+    fixed_effects <- c(base_effects, "hla_risk_class")
+  } else {
+    fixed_effects <- base_effects
+  }
+  
+  # ---- create output folder ----
+  if(!dir.exists("results")){
+    dir.create("results")
+  }
+  
+  if(!dir.exists("results/maaslin_res")){
+    dir.create("results/maaslin_res")
+  }
+  
+  # ---- run Maaslin2 ----
+  fit <- Maaslin2(
+    input_data = taxa_data,
+    input_metadata = metadata,
+    output = "results/maaslin_res",
+    normalization = "TSS",
+    transform = "log",
+    analysis_method = "LM",
+    min_prevalence = prevalence,
+    min_abundance = abundance,
+    fixed_effects = fixed_effects,
+    correction = "BH",
+    standardize = FALSE,
+    reference = c(paste0("country,", ref_country)),
+    max_significance = q_cutoff
+  )
+  
+  # ---- extract country effects only ----
+  results <- fit$results
+  
+  diff_taxa <- results %>%
+    filter(metadata == "country") %>%
+    filter(qval < q_cutoff)
+  
+  return(
+    list(
+      fit = fit,
+      results = diff_taxa
+    )
+  )
+}
+
+
+res_maas <- run_maaslin_country(
+  metadata = metadata_filt,
+  taxa_data = taxa_tss_data
+)
+
+## Q4d visualization ----
+
+plot_maaslin_diff_abundance <- function(maaslin_results,
+                                        taxa_data,
+                                        metadata,
+                                        group_var = "country",
+                                        q_cutoff = 0.01,
+                                        pseudocount = 1e-6){
+  
+  require(dplyr)
+  require(tidyr)
+  require(tibble)
+  require(ggplot2)
+  require(ggpubr)
+  
+  # ---- sanity check ----
+  stopifnot(
+    identical(rownames(metadata),
+              colnames(taxa_data))
+  )
+  
+  # ---- filter sig taxa for group ----
+  diff_taxa_group <- maaslin_results %>%
+    filter(metadata == group_var) %>%
+    filter(qval < q_cutoff)
+  
+  if(nrow(diff_taxa_group) == 0){
+    stop("No significant taxa found for this group.")
+  }
+  
+  sig_taxa <- unique(diff_taxa_group$feature)
+  
+  # ---- reshape taxa ----
+  taxa_long <- taxa_data %>%
+    as.data.frame() %>%
+    rownames_to_column("taxa") %>%
+    filter(taxa %in% sig_taxa) %>%
+    pivot_longer(cols = -taxa,
+                 names_to = "sample_id",
+                 values_to = "abundance")
+  
+  # ---- reshape metadata ----
+  metadata_needed <- metadata %>%
+    rownames_to_column("sample_id") %>%
+    select(sample_id, !!sym(group_var))
+  
+  # ---- merge ----
+  taxa_long <- taxa_long %>%
+    left_join(metadata_needed, by = "sample_id")
+  
+  # ---- raw abundance plot ----
+  p_raw <- ggplot(taxa_long,
+                  aes_string(x = group_var,
+                             y = "abundance",
+                             fill = group_var)) +
+    geom_boxplot() +
+    geom_jitter(width = 0.2,
+                alpha = 1,
+                size = 1) +
+    facet_wrap(~taxa,
+               scales = "free_y") +
+    stat_compare_means(method = "anova",
+                       label = "p.format",
+                       vjust = 1) +
+    theme(legend.position = "none") +
+    labs(x = group_var,
+         y = "Relative abundance")
+  
+  # ---- log plot ----
+  p_log <- ggplot(taxa_long, aes_string(x = group_var, y = "abundance", fill = group_var)) +
+    geom_boxplot() +
+    geom_jitter(width = 0.2, alpha = 1, size = 1) +
+    facet_wrap(~taxa, scales = "free_y") +
+    stat_compare_means(method = "anova", label = "p.format", vjust = 1) +
+    scale_y_continuous(trans = "log10") +   # <-- log scale applied to axis
+    theme(legend.position = "none") +
+    labs(x = group_var, y = "Relative abundance (log10)")
+  
+  return(
+    list(
+      sig_table = diff_taxa_group,
+      raw_plot = p_raw,
+      log_plot = p_log
+    )
+  )
+}
+
+
+vis_maas <- plot_maaslin_diff_abundance(
+  maaslin_results = res_maas$results,
+  taxa_data = taxa_tss_data,
+  metadata = metadata_filt,
+  group_var = "country"
+)
+
+vis_maas$raw_plot
+vis_maas$log_plot
+vis_maas$sig_table       # vector of significant taxa
+
+rm(res_maas, vis_maas)
