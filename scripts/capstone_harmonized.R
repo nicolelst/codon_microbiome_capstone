@@ -689,3 +689,189 @@ vis_maas$log_plot
 vis_maas$sig_table       # vector of significant taxa
 
 rm(res_maas, vis_maas)
+
+# 5a ----------------------------------------------------------------------
+#### 5. Functional Pathway Analysis
+### a. Subset the pathway relative abundance profiles to correspond with your filtered samples (similar to what you did for species profiles)
+
+library(ccrepe)
+library(MMUPHin)
+
+# Load VatanenT_2016 metabolic pathway abundance
+capstone_pathway_data <- curatedMetagenomicData(
+  "VatanenT_2016.pathway_abundance",
+  dryrun = FALSE,
+  counts = FALSE 
+)
+
+# Returns a list with one TSE object
+capstone_pathway_tse <- capstone_pathway_data[[1]]
+
+## Extract Pathway Matrix
+# Get the assay (pathway matrix)
+pathway_matrix <- assay(capstone_pathway_tse)
+# Dimensions: features × samples
+dim(pathway_matrix) # 24605 x 785
+# Convert to data frame
+pathway_matrix_df <- pathway_matrix %>% data.frame()
+
+pathway <- pathway_matrix_df %>% rownames_to_column("feature") %>% filter(
+  !grepl("\\.g__|\\.s__|\\||\\.unclassified", feature, ignore.case= TRUE) &
+    !grepl("^UNINTEGRATED", feature, ignore.case= TRUE) &
+    !grepl("^UNCLASSIFIED", feature, ignore.case= TRUE) &
+    !grepl("^UNMAPPED", feature, ignore.case= TRUE)
+) %>% column_to_rownames("feature")
+
+pathway_filtered <- pathway
+pathway_filtered[pathway_filtered < 0.00001] <- 0 # Removes pathways less than 0.001% abundant
+pathway_filtered <- pathway_filtered[rowSums(pathway_filtered > 0) > 0, ] # Removes pathways where total row sum adds up to 0
+
+nrow(pathway_filtered) # 452 rows
+
+# Apply TSS
+pathway_tss <- sweep(
+  pathway_filtered,
+  2,
+  colSums(pathway_filtered),
+  FUN = "/"
+) * 100
+
+colSums(pathway_tss) # should all be 100
+
+metadata_filt_gidwgs <- metadata_filt %>% 
+  rownames_to_column("gid_wgs")
+
+common_ids_pathway <- intersect(metadata_filt_gidwgs$gid_wgs, colnames(pathway_tss))
+
+length(common_ids_pathway) # 147
+length(metadata_filt_gidwgs$gid_wgs) # 162
+
+# Taking common pathways
+pathway_first_year <- pathway_tss %>%
+  select(all_of(common_ids_pathway))
+
+length(pathway_first_year) # should be 147
+
+# Simplifying pathway names (e.g. KDO-NAGLIPASYN-PWY: superpathway of (Kdo)2-lipid A biosynthesis -> KDO-NAGLIPASYN-PWY)
+rownames(pathway_first_year) <- sub(":.*", "", rownames(pathway_first_year))
+
+metadata_pathway <- metadata_filt_gidwgs[match(common_ids_pathway,
+                                               metadata_filt_gidwgs$gid_wgs), ]
+
+rm(capstone_pathway_data, capstone_pathway_tse, pathway, pathway_matrix, pathway_tss, pathway_filtered, common_ids_pathway, metadata_filt_gidwgs, pathway_matrix_df)
+
+# 5b Task 3 ---------------------------------------------------------------
+### b. Repeat the analyses from Tasks 3 and 4, addressing the same questions but from a functional pathway perspective
+#### 3. Community Diversity and Structure (use 147 post-filtering)
+### a. Calculate alpha diversity and visualize its distribution by country.
+### Interpret any between-country differences.
+### b. Bonus: can you statistically test differences in alpha diversity across countries?
+
+## Richness
+metadata_pathway$richnesspathway <- specnumber(pathway_first_year, MARGIN = 2)
+
+ggplot(metadata_pathway, aes(x = country, y = richnesspathway, fill = country)) +
+  geom_boxplot() +
+  stat_compare_means(label = "p.format", hjust=0) +
+  geom_jitter(width = 0.2, alpha = 1, size = 2) +
+  labs(x = "Country", y = "Richness") +
+  theme_bw() + theme(legend.position = "none")
+
+## Simpson
+metadata_pathway$simpson_diversity_pathway <- diversity(pathway_first_year, index = "simpson", MARGIN = 2)
+
+ggplot(metadata_pathway, aes(x = country, y = simpson_diversity_pathway, fill = country)) +
+  geom_boxplot() +
+  stat_compare_means(label = "p.format", hjust=0) +
+  geom_jitter(width = 0.2, alpha = 1, size = 2) +
+  labs(x = "Country", y = "Simpson") +
+  theme_bw() + theme(legend.position = "none")
+
+## Shannon
+metadata_pathway$shannon_diversity_pathway <- diversity(pathway_first_year, index = "shannon", MARGIN = 2)
+
+ggplot(metadata_pathway, aes(x = country, y = shannon_diversity_pathway, fill = country)) +
+  geom_boxplot() +
+  stat_compare_means(method = "anova", label = "p.format", hjust=0) +
+  geom_jitter(width = 0.2, alpha = 1, size = 2) +
+  labs(x = "Country", y = "Shannon") +
+  theme_bw() + theme(legend.position = "none")
+
+## Multiple alpha-diversity
+tmp_pathway <- metadata_pathway %>%
+  pivot_longer(cols = c(richnesspathway, simpson_diversity_pathway, shannon_diversity_pathway)) %>%
+  select(country, name, value)
+
+head(tmp_pathway)
+
+ggplot(tmp_pathway, aes(x = country, y = value, fill = country)) +
+  facet_wrap( ~ name, scales = "free", ncol = 3) +
+  geom_boxplot() +
+  stat_compare_means(method = "anova", label = "p.format", hjust = -0.5) +
+  geom_jitter(width = 0.2, alpha = 1, size = 1) +
+  theme_bw() + theme(legend.position = "none") + labs(x = NULL, y = NULL)
+
+rm(tmp_pathway)
+
+### c. Compute beta-diversity using Bray-Curtis dissimilarity
+### and perform Principal Coordinate Analysis.
+### Visualize PCoA of samples colored by country and age.
+### Hint: consider the approach in Figure 2A of the original manuscript.
+
+## Bray-Curtis
+bray_dist_pathway <- vegdist(t(pathway_first_year), method = "bray")
+bray_pcoa_pathway <- cmdscale(bray_dist_pathway, k = 2, eig = TRUE)
+
+mdf_pathway <- data.frame(
+  PCoA1 = bray_pcoa_pathway$points[ , 1],
+  PCoA2 = bray_pcoa_pathway$points[ , 2],
+  country = metadata_pathway$country,
+  age = metadata_pathway$age_at_collection) %>% 
+  mutate(age_bin = cut(age,
+                       breaks = c(0, 90, 180, 270, 365),
+                       labels = c("0–3 mo", "3–6 mo", "6–9 mo", "9-12 mo")))
+
+VE_pathway <- round(100*bray_pcoa_pathway$eig / sum(bray_pcoa_pathway$eig), 1)
+VE_pathway <- paste0("PCoA", 1:length(VE_pathway), " (", VE_pathway, "%)")
+
+head(mdf_pathway, 3)
+
+# Country
+ggplot(mdf_pathway, aes(x = PCoA1, y = PCoA2, colour = country)) +
+  geom_point(size = 3, alpha = 0.75) +
+  stat_ellipse(show.legend = FALSE) + 
+  labs(x = VE_pathway[1], y = VE_pathway[2]) + theme_bw()
+
+# Age
+ggplot(mdf_pathway, aes(x = PCoA1, y = PCoA2, colour = age)) +
+  geom_point(size = 3, alpha = 0.75) +
+  scale_colour_viridis_c(option = "plasma") +
+  labs(x = VE_pathway[1], y = VE_pathway[2], colour = "Age (days)") +
+  theme_bw()
+
+# If binning age into groups
+ggplot(mdf_pathway, aes(PCoA1, PCoA2, colour = age_bin)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  labs(x = VE_pathway[1], y = VE_pathway[2], colour = "Age group") +
+  theme_bw()
+
+rm(mdf_pathway, VE_pathway, bray_dist_pathway, bray_pcoa_pathway)
+
+### d. Statistically test between-country differences while
+### adjusting for the following covariates:
+### age at collection, gender, delivery mode,
+### breastfeeding status, antibiotic usage in the first year.
+### Interpret your results. Hint: PERMANOVA
+
+## PERMANOVA
+set.seed(123)
+
+bray_dist_pathway <- vegdist(t(pathway_first_year), method = "bray")
+
+fit_adonis_pathway <- adonis2(bray_dist_pathway ~ country + age_at_collection + gender + delivery + Exclusive_breast_feeding + abx_first_year,
+                              data = metadata_pathway, by="terms", na.action = na.omit)
+broom::tidy(fit_adonis_pathway) %>%
+  knitr::kable()
+
+rm(bray_dist_pathway, fit_adonis_pathway)
