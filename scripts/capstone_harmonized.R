@@ -529,12 +529,8 @@ run_maaslin_country <- function(metadata,
   }
   
   # ---- create output folder ----
-  if(!dir.exists("results")){
-    dir.create("results")
-  }
-  
   if(!dir.exists("results/maaslin_res")){
-    dir.create("results/maaslin_res")
+    dir.create("results/maaslin_res", recursive = TRUE)
   }
   
   # ---- run Maaslin2 ----
