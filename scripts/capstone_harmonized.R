@@ -502,7 +502,9 @@ run_maaslin_country <- function(metadata,
                                 ref_country = "RUS",
                                 prevalence = 0.10,
                                 abundance = 0.001,
-                                q_cutoff = 0.01){
+                                q_cutoff = 0.01,
+                                plot_scatter = TRUE,
+                                res_folder = "results/maaslin_res"){
   
   # ---- sanity check ----
   stopifnot(
@@ -531,17 +533,17 @@ run_maaslin_country <- function(metadata,
   }
 
   # ---- create output folder ----
-  if(!dir.exists("results/maaslin_res")){
-    dir.create("results/maaslin_res", recursive = TRUE)
+  if(!dir.exists(res_folder)){
+    dir.create(res_folder, recursive = TRUE)
   }
 
   # ---- run Maaslin2 ----
   fit <- Maaslin2(
     input_data = taxa_data,
     input_metadata = metadata,
-    output = "results/maaslin_res",
+    output = res_folder,
     normalization = "TSS",
-    transform = "log",
+    transform = "LOG",
     analysis_method = "LM",
     min_prevalence = prevalence,
     min_abundance = abundance,
@@ -549,7 +551,8 @@ run_maaslin_country <- function(metadata,
     correction = "BH",
     standardize = FALSE,
     reference = c(paste0("country,", ref_country)),
-    max_significance = q_cutoff
+    max_significance = q_cutoff,
+    plot_scatter = plot_scatter
   )
 
   # ---- extract country effects only ----
@@ -570,7 +573,9 @@ run_maaslin_country <- function(metadata,
 
 res_maas <- run_maaslin_country(
   metadata = metadata_filt,
-  taxa_data = taxa_tss_data
+  taxa_data = taxa_tss_data,
+  res_folder = "results/4b_maaslin_res",
+  plot_scatter = FALSE # deprecated since ggplot2 v3.4.0
 )
 
 ## Q4d visualization ----
@@ -936,7 +941,7 @@ all(colnames(pathway_first_year) == rownames(sub_metadata))
 diff_path <- Maaslin2(
   input_data = pathway_first_year,
   input_metadata = sub_metadata,
-  output = "results/maaslin_pathways_renamed",
+  output = "results/5b_4b_maaslin_pathways",
   fixed_effects = c(
     "country",
     "age_at_collection",
@@ -945,9 +950,11 @@ diff_path <- Maaslin2(
     "Exclusive_breast_feeding",
     "abx_first_year"
   ),
-  normalization = "NONE",
+  reference = "country,RUS",
+  normalization = "TSS",
   transform = "LOG",
   correction = "BH",
+  standardize = FALSE,
   min_prevalence = 0.1, min_abundance = 0,
   max_significance = 0.01,
   plot_scatter = FALSE
@@ -960,7 +967,7 @@ rm(mas_features, path_ids)
 
 ### d. Visualize differentially abundant pathways across countries
 maaslin_results <- read.delim(
-  "results/maaslin_pathways_renamed/all_results.tsv"
+  "results/5b_4b_maaslin_pathways/all_results.tsv"
 ) %>%
   filter(metadata == "country", qval < 0.01) %>%
   left_join(pathway_map, by = c("feature" = "mas_feature")) %>%
