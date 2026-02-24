@@ -1,5 +1,6 @@
 # Setting up and loading data ----
 library(ccrepe)
+library(ggbeeswarm)
 library(ggpubr)
 library(janitor)
 library(Maaslin2)
@@ -17,11 +18,11 @@ view(metadata_all)
 colnames(metadata_all)          # 18 colnames ....
 
 ##Q1B Filtering the samples by shotgun (non-NA gid_wgs, by age and first ever collected sample) ----
-metadata_filt <- metadata_all %>% 
-  filter(!is.na(gid_wgs), age_at_collection <= 365 ) %>%  
-  group_by(subjectID) %>% 
+metadata_filt <- metadata_all %>%
+  filter(!is.na(gid_wgs), age_at_collection <= 365 ) %>%
+  group_by(subjectID) %>%
   slice_min(age_at_collection , n = 1) %>%
-  column_to_rownames("gid_wgs") # 162 individuals , first collected sample of each only 
+  column_to_rownames("gid_wgs") # 162 individuals , first collected sample of each only
 
 dim(metadata_filt) # 162  17
 
@@ -30,7 +31,7 @@ dim(metadata_filt) # 162  17
 ### Loading taxa data from CMData from Bioconductor Experiment Hub  -----
 cdata <- curatedMetagenomicData::curatedMetagenomicData(
   "VatanenT_2016.relative_abundance",
-  dryrun = FALSE , 
+  dryrun = FALSE ,
   counts = FALSE )              #Large list (7.3 MB)
 
 cdata <- cdata[[1]]
@@ -49,11 +50,11 @@ ggvenn::ggvenn(
 )
 #--#--#---#--#--#--#--#--#--#--#--#--#
 keep_ids <- intersect(colnames(taxa_data) , rownames(metadata_filt))
-length(keep_ids)                # 785 samples ->  147 samples (gid_wgs) 
+length(keep_ids)                # 785 samples ->  147 samples (gid_wgs)
 
 metadata_filt <- metadata_filt[keep_ids , ]
 taxa_data <- taxa_data[ , keep_ids]
-# if u want to check go and check the venn diagram 
+# if u want to check go and check the venn diagram
 
 ### Changing the taxa name to species level
 ranks <- c("Kingdom", "Phylum", "Class", "Order",
@@ -82,7 +83,7 @@ dim(taxa_data)
 rm(taxa_data)
 
 ### Checking if both taxa_data and metadata_filt are identical ----
-identical(rownames(metadata_filt) , colnames(taxa_data_byspecies))    # TRUE 
+identical(rownames(metadata_filt) , colnames(taxa_data_byspecies))    # TRUE
 rm(keep_ids)
 
 ## Q1D Part 1 ----
@@ -94,12 +95,12 @@ taxa_data_byspecies[ taxa_data_byspecies < 0.01 ] <- 0  #logical indexing # [] u
 ### How many species remain? (335)----
 
 keep_species <- which( rowSums(taxa_data_byspecies) > 0 )
-taxa_data_byspecies <- taxa_data_byspecies[ keep_species, ]    # all rows with net 0 removed 
+taxa_data_byspecies <- taxa_data_byspecies[ keep_species, ]    # all rows with net 0 removed
 
-dim(taxa_data_byspecies)                      # (335rows 147 cols) , 618 rows dropped to 335 (species)  
-rm(keep_species) 
+dim(taxa_data_byspecies)                      # (335rows 147 cols) , 618 rows dropped to 335 (species)
+rm(keep_species)
 
-taxa_data <- taxa_data_byspecies              #long name shortened back because dont really need to specify after this qn 
+taxa_data <- taxa_data_byspecies              #long name shortened back because dont really need to specify after this qn
 rm(taxa_data_byspecies)
 
 ##Q1E ----
@@ -118,7 +119,7 @@ taxa_tss_data <- sweep(
 
 ggplot(metadata_filt , aes(x = country , fill = allergy_milk)) +
   geom_bar(position = "fill") +
-  labs(x = NULL, y = NULL) + 
+  labs(x = NULL, y = NULL) +
   scale_y_continuous(labels = scales::percent)
 
 ##better looking version of 2A. ----
@@ -140,18 +141,18 @@ ggplot(metadata_filt %>% tibble::as_tibble(),
 
 ##Q2B Covariates across countries  ----
 
-metadata_covariates <- metadata_filt %>% 
+metadata_covariates <- metadata_filt %>%
   select(country , delivery , Exclusive_breast_feeding , age_at_collection)
 
-#age distribution 
+#age distribution
 ggplot(metadata_covariates, aes(x = country, y = age_at_collection, fill = country)) +
   geom_boxplot(outlier.shape = NA) +
   geom_jitter(width = 0.15, alpha = 0.35, size = 1) +
   labs(x = "country", y = "age at collection (days)") +
   theme(legend.position = "none")
 
-#delivery distribution 
-ggplot(metadata_covariates , aes(x = country  , fill = delivery)) + 
+#delivery distribution
+ggplot(metadata_covariates , aes(x = country  , fill = delivery)) +
   geom_bar( ) + labs( x = "country" , y = " type of delivery ")
 ##better version for delivery distribution ----
 ggplot(metadata_covariates %>% tibble::as_tibble(),
@@ -210,7 +211,7 @@ alpha_diversity_plot <- function(metadata,
                                  species,
                                  group_var,
                                  facet_ncol = 3,
-                                 add_stats = TRUE) {  
+                                 add_stats = TRUE) {
   # ---- calculate alpha diversity ----
   metadata_out <- metadata %>%
     mutate(
@@ -218,7 +219,7 @@ alpha_diversity_plot <- function(metadata,
       shannon_diversity = diversity(species, index = "shannon", MARGIN = 2),
       simpson_diversity = diversity(species, index = "simpson", MARGIN = 2)
     )
-  
+
   # ---- reshape for plotting ----
   plot_df <- metadata_out %>%
     pivot_longer(
@@ -226,7 +227,7 @@ alpha_diversity_plot <- function(metadata,
       names_to = "metric",
       values_to = "value"
     )
-  
+
   # ---- base plot ----
   p <- ggplot(
     plot_df,
@@ -239,7 +240,7 @@ alpha_diversity_plot <- function(metadata,
       legend.position = "none",
       axis.title = element_blank()
     )
-  
+
   # ---- optional stats ----
   if (add_stats) {
     p <- p +
@@ -249,7 +250,7 @@ alpha_diversity_plot <- function(metadata,
         hjust = -0.25
       )
   }
-  
+
   # ---- return both data + plot ----
   return(
     list(
@@ -283,31 +284,31 @@ beta_diversity_pcoa <- function(metadata,
                                 ellipse = TRUE) {
 
   method <- match.arg(method)
-  
+
   # ---- confirm sample name matches ----
-  
+
   stopifnot(
     identical(rownames(metadata),
               colnames(species))
   )
-  
+
   # ---- distance matrix ----
   dist_mat <- vegdist(
     t(species),
     method = method,
     binary = ifelse(method == "jaccard", binary, FALSE)
   )
-  
-  
+
+
   # ---- PCoA ----
   pcoa <- cmdscale(dist_mat, k = k, eig = TRUE)
-  
+
   # ---- variance explained ----
   ve <- round(100 * pcoa$eig / sum(pcoa$eig), 1)
   axis_labels <- paste0(
     "PCoA", seq_len(k), " (", ve[seq_len(k)], "%)"
   )
-  
+
   # ---- plotting dataframe ----
   plot_df <- data.frame(
     PCoA1 = pcoa$points[, 1],
@@ -315,7 +316,7 @@ beta_diversity_pcoa <- function(metadata,
     country = metadata[[group_var]],
     age = metadata$age_at_collection
   )
-  
+
   # ---- PCoA plot ----
   p_country <- ggplot(plot_df,
                       aes(x = PCoA1,
@@ -328,13 +329,13 @@ beta_diversity_pcoa <- function(metadata,
       colour = group_var
     ) +
     theme_bw()
-  
+
   # Ellipses should ONLY apply to country, ellipses on numeric age are meaningless statistically.
-  
+
   if (ellipse) {
     p_country <- p_country + stat_ellipse(show.legend = FALSE)
   }
-  
+
   p_age <- ggplot(plot_df,
                   aes(x = PCoA1,
                       y = PCoA2,
@@ -346,7 +347,7 @@ beta_diversity_pcoa <- function(metadata,
       y = axis_labels[2]
     ) +
     theme_bw()
-  
+
   # ---- return everything ----
   return(
     list(
@@ -401,7 +402,7 @@ permanova <- adonis2(
     country,
   data = meta,
   permutations = 999,
-  by = "terms", 
+  by = "terms",
   na.action = na.omit
 )
 
@@ -416,20 +417,20 @@ top_species_barplot <- function(metadata,
                                 taxa_data,
                                 group_var,
                                 top_n = 15){
-  
+
   # ---- sanity check sample matching ----
   stopifnot(
     identical(rownames(metadata),
               colnames(taxa_data))
   )
-  
+
   groups <- levels(as.factor(metadata[[group_var]]))
-  
+
   # ---- Compute top species per group ----
   top <- lapply(groups, function(g){
-    
+
     idx <- which(metadata[[group_var]] == g)
-    
+
     taxa_data[, idx] %>%
       rowMeans(na.rm = TRUE) %>%
       sort(decreasing = TRUE) %>%
@@ -437,7 +438,7 @@ top_species_barplot <- function(metadata,
       enframe(name = "species",
               value = "mean_abundance") %>%
       mutate(group = g)
-    
+
   }) %>%
     bind_rows() %>%
     group_by(group) %>%
@@ -448,7 +449,7 @@ top_species_barplot <- function(metadata,
       rank_id = row_number()
     ) %>%
     ungroup()
-  
+
   # ---- Plot ----
   p <- ggplot(top,
               aes(x = group,
@@ -467,7 +468,7 @@ top_species_barplot <- function(metadata,
       fill = "Species"
     ) +
     theme_bw()
-  
+
   return(
     list(
       data = top,
@@ -502,13 +503,13 @@ run_maaslin_country <- function(metadata,
     identical(rownames(metadata),
               colnames(taxa_data))
   )
-  
+
   # ---- set reference level ----
   metadata$country <- relevel(
     as.factor(metadata$country),
     ref = ref_country
   )
-  
+
   # ---- fixed effects ----
   base_effects <- c("country",
                     "age_at_collection",
@@ -516,18 +517,18 @@ run_maaslin_country <- function(metadata,
                     "delivery",
                     "Exclusive_breast_feeding",
                     "abx_first_year")
-  
+
   if(include_hla){
     fixed_effects <- c(base_effects, "hla_risk_class")
   } else {
     fixed_effects <- base_effects
   }
-  
+
   # ---- create output folder ----
   if(!dir.exists("results/maaslin_res")){
     dir.create("results/maaslin_res", recursive = TRUE)
   }
-  
+
   # ---- run Maaslin2 ----
   fit <- Maaslin2(
     input_data = taxa_data,
@@ -544,14 +545,14 @@ run_maaslin_country <- function(metadata,
     reference = c(paste0("country,", ref_country)),
     max_significance = q_cutoff
   )
-  
+
   # ---- extract country effects only ----
   results <- fit$results
-  
+
   diff_taxa <- results %>%
     filter(metadata == "country") %>%
     filter(qval < q_cutoff)
-  
+
   return(
     list(
       fit = fit,
@@ -581,18 +582,18 @@ plot_maaslin_diff_abundance <- function(maaslin_results,
     identical(rownames(metadata),
               colnames(taxa_data))
   )
-  
+
   # ---- filter sig taxa for group ----
   diff_taxa_group <- maaslin_results %>%
     filter(metadata == group_var) %>%
     filter(qval < q_cutoff)
-  
+
   if(nrow(diff_taxa_group) == 0){
     stop("No significant taxa found for this group.")
   }
-  
+
   sig_taxa <- unique(diff_taxa_group$feature)
-  
+
   # ---- reshape taxa ----
   taxa_long <- taxa_data %>%
     as.data.frame() %>%
@@ -601,16 +602,16 @@ plot_maaslin_diff_abundance <- function(maaslin_results,
     pivot_longer(cols = -taxa,
                  names_to = "sample_id",
                  values_to = "abundance")
-  
+
   # ---- reshape metadata ----
   metadata_needed <- metadata %>%
     rownames_to_column("sample_id") %>%
     select(sample_id, !!sym(group_var))
-  
+
   # ---- merge ----
   taxa_long <- taxa_long %>%
     left_join(metadata_needed, by = "sample_id")
-  
+
   # ---- raw abundance plot ----
   p_raw <- ggplot(taxa_long,
                   aes_string(x = group_var,
@@ -628,7 +629,7 @@ plot_maaslin_diff_abundance <- function(maaslin_results,
     theme(legend.position = "none") +
     labs(x = group_var,
          y = "Relative abundance")
-  
+
   # ---- log plot ----
   p_log <- ggplot(taxa_long, aes_string(x = group_var, y = "abundance", fill = group_var)) +
     geom_boxplot() +
@@ -638,7 +639,7 @@ plot_maaslin_diff_abundance <- function(maaslin_results,
     scale_y_continuous(trans = "log10") +   # <-- log scale applied to axis
     theme(legend.position = "none") +
     labs(x = group_var, y = "Relative abundance (log10)")
-  
+
   return(
     list(
       sig_table = diff_taxa_group,
@@ -670,7 +671,7 @@ rm(res_maas, vis_maas)
 capstone_pathway_data <- curatedMetagenomicData(
   "VatanenT_2016.pathway_abundance",
   dryrun = FALSE,
-  counts = FALSE 
+  counts = FALSE
 )
 
 # Returns a list with one TSE object
@@ -707,7 +708,7 @@ pathway_tss <- sweep(
 
 colSums(pathway_tss) # should all be 100
 
-metadata_filt_gidwgs <- metadata_filt %>% 
+metadata_filt_gidwgs <- metadata_filt %>%
   rownames_to_column("gid_wgs")
 
 common_ids_pathway <- intersect(metadata_filt_gidwgs$gid_wgs, colnames(pathway_tss))
@@ -797,7 +798,7 @@ mdf_pathway <- data.frame(
   PCoA1 = bray_pcoa_pathway$points[ , 1],
   PCoA2 = bray_pcoa_pathway$points[ , 2],
   country = metadata_pathway$country,
-  age = metadata_pathway$age_at_collection) %>% 
+  age = metadata_pathway$age_at_collection) %>%
   mutate(age_bin = cut(age,
                        breaks = c(0, 90, 180, 270, 365),
                        labels = c("0–3 mo", "3–6 mo", "6–9 mo", "9-12 mo")))
@@ -810,7 +811,7 @@ head(mdf_pathway, 3)
 # Country
 ggplot(mdf_pathway, aes(x = PCoA1, y = PCoA2, colour = country)) +
   geom_point(size = 3, alpha = 0.75) +
-  stat_ellipse(show.legend = FALSE) + 
+  stat_ellipse(show.legend = FALSE) +
   labs(x = VE_pathway[1], y = VE_pathway[2]) + theme_bw()
 
 # Age
@@ -848,7 +849,7 @@ broom::tidy(fit_adonis_pathway) %>%
 rm(bray_dist_pathway, fit_adonis_pathway)
 
 ### Repeat of Task 4
-### a. Visualize the abundance of the top 15 species (ranked by mean abundance) 
+### a. Visualize the abundance of the top 15 species (ranked by mean abundance)
 ### for each country using stacked bar plots. What visual differences do you observe between countries?
 
 # Top 15 pathways by mean abundance
@@ -866,7 +867,7 @@ plot_path <- pathway_first_year[top15_path, , drop = FALSE] %>%
   ) %>%
   left_join(metadata_pathway, by = c("sample_id" = "gid_wgs"))
 
-# Plot 
+# Plot
 plot_path %>%
   group_by(country, pathway) %>%
   summarise(mean_abundance = mean(abundance), .groups = "drop") %>%
@@ -877,14 +878,14 @@ plot_path %>%
 
 rm(plot_path,top15_path, path_means)
 
-# Comparing the barplot by country, Russia have less ileusyn PWY (L-isoleucine biosynthesis), 
+# Comparing the barplot by country, Russia have less ileusyn PWY (L-isoleucine biosynthesis),
 # but more PWY7222 (guanosine deoxyribonucleotides de novo biosynthesis II),
 # PWY7220 (adenosine deoxyribonucleotides de novo biosynthesis II)
 # and valsyn PWY (L-valine biosynthesis).
-# These pathways contribited to amino acid metabolism and DNA synthesis. 
+# These pathways contribited to amino acid metabolism and DNA synthesis.
 
-### b. Identify species with statistically significant differential abundance between countries 
-## [Use Russia as the reference group; significance threshold = 0.01; 
+### b. Identify species with statistically significant differential abundance between countries
+## [Use Russia as the reference group; significance threshold = 0.01;
 ## focus on species with abundance >0% in at least 10% of samples]
 
 # Differentially abundant pathways (MaAsLin2)
@@ -950,7 +951,7 @@ diff_path <- Maaslin2(
 
 rm(mas_features, path_ids)
 
-### c. Compare with original publication-> moved after d. 
+### c. Compare with original publication-> moved after d.
 
 
 ### d. Visualize differentially abundant pathways across countries
@@ -990,7 +991,7 @@ plot_sig_path <- pathway_first_year[top8_paths, , drop = FALSE] %>%
   ) %>%
   filter(!is.na(country))
 
-# Plot 
+# Plot
 ggplot(plot_sig_path,
        aes(x = country, y = abundance, fill = country)) +
   geom_boxplot(outlier.shape = NA, width = 0.6) +
@@ -1011,7 +1012,7 @@ rm(sub_metadata, diff_path, plot_sig_path, top8_table, top8_paths)
 
 ### c. Compare with original publication
 
-# Top 8 differential pathways by country (RUS as ref) suggestes: 
+# Top 8 differential pathways by country (RUS as ref) suggestes:
 # Lower folate biosynthesis (PWY-7539, PWY-6147)
 # Lower preQ0 biosynthesis (PWY-6703) -> lower tRNA modification
 # Lower flavin biosynthesis (PWY-6168) -> lower B2 production
@@ -1022,17 +1023,17 @@ rm(sub_metadata, diff_path, plot_sig_path, top8_table, top8_paths)
 # Also higher sucrose degradation IV (PWY-5384) -> higher carbohydrate breakdown
 # Higher UDP-N-acetyl-D-glucosamine biosynthesis (UDPNAGSYN-PWY) -> higher peptidoglycan (lipid A) precursor
 
-# In which, glycolysis process and lipid A biosynthetic process are also mentioned in the paper Fig3A. 
+# In which, glycolysis process and lipid A biosynthetic process are also mentioned in the paper Fig3A.
 
-### Bonus: In the original publication, the authors analyzed metagenomic data-derived GO terms 
-### and noted that "lipid A biosynthetic process (GO: 0009245) showed a striking difference in abundance 
+### Bonus: In the original publication, the authors analyzed metagenomic data-derived GO terms
+### and noted that "lipid A biosynthetic process (GO: 0009245) showed a striking difference in abundance
 ### between countries." Investigate whether you can detect similar differences using metaCyc pathway data
 
 # Select lipid A–related pathways
 lipidA_paths <- pathway_map %>%
   filter(str_detect(original_name, regex("lipid|Lipid", ignore_case = TRUE))) %>%
   pull(pathway_id) %>%
-  intersect(rownames(pathway_first_year)) 
+  intersect(rownames(pathway_first_year))
 
 # Intersect with maaslin_results
 lipidA_paths <- intersect(maaslin_results$pathway_id, lipidA_paths)
@@ -1071,11 +1072,11 @@ ggplot(lipidA_df,
 rm(lipidA_df)
 
 # NAGLIPASYN-PWY is significantly different between countries (lower in Russia)
-# This pathway is relevent with cell wall peptidoglycan synthesis, a precursor 
+# This pathway is relevent with cell wall peptidoglycan synthesis, a precursor
 # For Lipid A biosynthetic process. That is similar to the authors' conclusion.
 
-### d. Bonus: If yes for 5c, please identify the top species or 
-### genera contributing to the lipid A biosynthesis pathway. 
+### d. Bonus: If yes for 5c, please identify the top species or
+### genera contributing to the lipid A biosynthesis pathway.
 
 # Focus on the NAGLIPASYN-PWY
 lipidA_taxa_df <- pathway_matrix_df %>%
@@ -1083,7 +1084,7 @@ lipidA_taxa_df <- pathway_matrix_df %>%
   filter(grepl(paste0("^", lipidA_paths, ":"), pathway_taxa) |
            grepl(paste0("^", lipidA_paths, "\\|"), pathway_taxa))
 
-lipidA_taxa_df <- lipidA_taxa_df %>% 
+lipidA_taxa_df <- lipidA_taxa_df %>%
   filter(grepl("\\|", pathway_taxa))
 
 lipidA_long <- lipidA_taxa_df %>%
@@ -1121,13 +1122,13 @@ taxa_summary <- lipidA_long %>%
   group_by(country, pathway_species) %>%
   summarise(total_abundance = sum(abundance), .groups = "drop")
 
-# Order by abundance 
+# Order by abundance
 taxa_summary$pathway_species <- factor(
   taxa_summary$pathway_species,
-  levels = taxa_summary %>% 
-    group_by(pathway_species) %>% 
-    summarise(total = sum(total_abundance)) %>% 
-    arrange(desc(total)) %>% 
+  levels = taxa_summary %>%
+    group_by(pathway_species) %>%
+    summarise(total = sum(total_abundance)) %>%
+    arrange(desc(total)) %>%
     pull(pathway_species)
 )
 
