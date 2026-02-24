@@ -18,6 +18,7 @@ library(vegan)
 # Loading data ----
 load("data/DIABIMMUNE_Karelia_metadata_sub.RData", verbose = TRUE)
 
+###############
 #Q1 ----
 ##Q1A Doing some initial eda on meta data ----
 dim(metadata_all)               # 1946 rows 18 col
@@ -122,6 +123,7 @@ taxa_tss_data <- sweep(
   "/"
 )
 
+###############
 # Qn 2  ----
 
 ## Q2A Milk and egg allergies across countries ----
@@ -218,8 +220,7 @@ ggplot(df_bf, aes(x = country, y = n, color = Exclusive_breast_feeding)) +
 ggsave("results/2b_exclusive_breast_feeding_by_country_v2.png", width = 6, height = 6, dpi = 600)
 
 
-
-
+###############
 # Qn 3  ----
 
 ## Q3a alpha diversity across countries ----
@@ -436,8 +437,9 @@ sink(NULL)
 
 rm(dist_mat, meta, res, res_bray, res_jaccard, permanova)
 
-# Qn 4  ----
 
+###############
+# Qn 4  ----
 
 ## Q4a Top 15 species for each country ----
 
@@ -701,6 +703,7 @@ write.csv(vis_maas$sig_table, "results/4d_maaslin_diff_abundance_significant_spe
 
 rm(res_maas, vis_maas)
 
+###############
 # 5a ----------------------------------------------------------------------
 #### 5. Functional Pathway Analysis
 ### a. Subset the pathway relative abundance profiles to correspond with your filtered samples (similar to what you did for species profiles)
