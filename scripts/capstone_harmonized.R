@@ -5,6 +5,7 @@ renv::restore()
 
 # Loading packages ----
 library(ccrepe)
+library(curatedMetagenomicData)
 library(ggbeeswarm)
 library(ggpubr)
 library(janitor)
@@ -48,23 +49,6 @@ rm(cdata)
 
 dim(taxa_data_all)                  # 618 rows 785 cols
 taxa_data_all[1:5 , 1:5]            # rownames = taxanomy  , colnames = gid_wgs ID
-
-### Checking for overlap between taxa_data & metadata_filt ----
-ggvenn::ggvenn(
-  list(
-    metadata_filt = rownames(metadata_filt),
-    taxa_data   = colnames(taxa_data)
-  )
-)
-ggsave("results/1c_samples_venn_diagram.png", width = 6, height = 4, dpi = 600)
-
-#--#--#---#--#--#--#--#--#--#--#--#--#
-keep_ids <- intersect(colnames(taxa_data) , rownames(metadata_filt))
-length(keep_ids)                # 785 samples ->  147 samples (gid_wgs)
-
-metadata_filt <- metadata_filt[keep_ids , ]
-taxa_data <- taxa_data[ , keep_ids]
-# if u want to check go and check the venn diagram
 
 ### Changing the taxa name to species level
 ranks <- c("Kingdom", "Phylum", "Class", "Order",
@@ -1217,3 +1201,149 @@ ggplot(taxa_summary, aes(x = country, y = total_abundance, fill = pathway_specie
 ggsave("results/5d_NAGLIPASYN_species_by_country.png", width = 12, height = 6, dpi = 600)
 
 rm(lipidA_taxa_df, lipidA_long, taxa_summary,maaslin_results, lipidA_paths)
+
+
+#### Q6 Longitudinal data ----
+## Q6a. Return to the original metadata and taxonomy files. Some subjects were sampled at multiple timepoints. Summarize the number of samples collected from each subject. *Hint: group_by subjectID* ----
+# keep only samples with corresponding row in metadata and column in species table
+valid_samples <- intersect(colnames(species_data_all), metadata_all$gid_wgs)
+longitudinal_species <- species_data_all %>% as.data.frame() %>% select(all_of(valid_samples))
+dim(longitudinal_species)
+longitudinal_meta <- metadata_all %>% filter(!is.na(gid_wgs), gid_wgs %in% valid_samples)
+dim(longitudinal_meta)
+rm(valid_samples)
+
+# clean all species-level longitudinal abundance data
+longitudinal_species <- longitudinal_species %>%
+  mutate(across(everything(), ~ ifelse(. < 0.01, 0, .))) %>% # remove low abundance "noise"
+  filter(rowSums(.) != 0) # remove species with abundance = 0 for all samples
+longitudinal_species <- sweep(longitudinal_species, 2, colSums(longitudinal_species), FUN = "/") # TSS
+
+# plot number of samples per subject
+ggplot(
+  longitudinal_meta %>% group_by(subjectID) %>%
+    summarise(num_collect = n()),
+  aes(x = num_collect)
+) +
+  geom_histogram(binwidth = 1, boundary = 0) +
+  labs(title = "Number of samples collected per subject", x = "", y = "") +
+  theme_bw() + theme(legend.position = "none")
+ggsave("results/6a_num_samples_per_subject.png", width = 6, height = 4, dpi = 600)
+
+# plot number of samples per subject, for each country
+ggplot(longitudinal_meta %>% group_by(country, subjectID) %>% summarise(num_collect = n(), .groups = "keep"), aes(x = num_collect, fill = country)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1, boundary = 0) +
+  labs(x = "# samples collected per subject", y = "") +
+  facet_wrap(~ country, ncol = 1) +
+  theme_bw() + theme(legend.position = "none")
+ggsave("results/6a_num_samples_per_subject_by_country.png", width = 6, height = 4, dpi = 600)
+
+
+## Q6b. Select the subject with the most samples and visualize community composition across all their samples, ordered by age at collection ----
+# count samples per subject, excluding invalid sample IDs with no taxa data
+sample_count <- longitudinal_meta %>%
+  group_by(subjectID) %>% summarise(num_samples = n()) %>%
+  arrange(desc(num_samples))
+print(head(sample_count))
+
+# most samples in relative abundance table = P014839 (13)
+subj_max_samples <- (sample_count %>% slice_max(num_samples))$subjectID
+max_samples_meta <- longitudinal_meta %>% filter(subjectID == subj_max_samples, !is.na(gid_wgs)) %>% arrange(collection_month)
+print(max_samples_meta)
+
+max_samples_species <- longitudinal_species %>% select(all_of(max_samples_meta$gid_wgs))
+
+# plot top 5 species by relative abundance at each time
+max_samples_plot_df <- merge(
+  max_samples_meta %>%
+    mutate(collection_month = factor(collection_month)) %>%
+    select(gid_wgs, collection_month),
+  t(max_samples_species),
+  by.x = "gid_wgs", by.y = 0
+) %>%
+  pivot_longer(cols = -(1:2), names_to = "species", values_to = "rel_ab")
+ggplot(
+  max_samples_plot_df %>% group_by(collection_month) %>% slice_max(rel_ab, n = 5),
+  aes(x = collection_month, y = rel_ab, fill = species)
+) +
+  geom_bar(colour = "darkslategrey", stat = "identity", position = "stack") +
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1), expand = c(0, 0)) +
+  labs(y = "Relative abundance", x = "Month of collection", fill = "Species") +
+  theme(legend.position = "right")
+ggsave(paste0("results/6b_longitudinal_top_5_species_", subj_max_samples, ".png"), width = 8, height = 6, dpi = 600)
+
+
+# plot top 5 genus by relative abundance at each time
+print(
+  ggplot(
+    max_samples_plot_df %>% mutate(
+      genus = sapply(max_samples_plot_df$species, function(s) str_split_1(s, "_")[[1]])
+    ) %>% group_by(gid_wgs, collection_month, genus) %>% summarise(total_relab = sum(rel_ab), .groups = "keep") %>%
+      group_by(collection_month) %>% slice_max(total_relab, n = 5),
+    aes(x = collection_month, y = total_relab, fill = genus)
+  ) +
+    geom_bar(colour = "darkslategrey", stat = "identity", position = "stack") +
+    scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1), expand = c(0, 0)) +
+    labs(y = "Relative abundance", x = "Month of collection", fill = "Genus") +
+    theme(legend.position = "right")
+)
+ggsave(paste0("results/6b_longitudinal_top_5_genus_", subj_max_samples, ".png"), width = 8, height = 6, dpi = 600)
+
+
+## Q6c. Using all collected samples, identify differentially abundant species between countries while accounting for repeated sampling. *Hint: consider subject ID as a random effect* ----
+longitudinal_species_maaslin_fit <- Maaslin2(
+  input_data = longitudinal_species,
+  input_metadata = longitudinal_meta %>% column_to_rownames("gid_wgs"),
+  output = "results/6c_longitudinal_maaslin_res",
+  normalization ="TSS", transform = "log",
+  analysis_method = "LM",
+  min_prevalence = 0.1,
+  min_abundance = 0.001,
+  fixed_effects = c("country", "age_at_collection", "gender", "delivery", "Exclusive_breast_feeding", "abx_first_year"),
+  random_effects = c("subjectID"),
+  reference = "country,RUS",
+  correction = "BH",
+  standardize = FALSE,
+  max_significance = 0.01,
+  plot_scatter = FALSE # deprecated
+)
+
+# subset only country-related differences at 0.01 significance threshold
+diff_taxa_longit <- longitudinal_species_maaslin_fit$results %>% filter(qval < 0.01, metadata == "country")
+print(diff_taxa_longit %>% arrange(qval))
+
+# plot only 8 most significant features (ranked based on min. qval)
+plot_species <- diff_taxa_longit %>% group_by(feature) %>%
+  summarise(min_qval = min(qval)) %>%
+  slice_min(min_qval, n = 8)
+plot_df <- longitudinal_species %>%
+  rownames_to_column("feature") %>%
+  filter(feature %in% plot_species$feature) %>%
+  pivot_longer(cols = -feature, names_to = "gid_wgs", values_to = "relab") %>%
+  left_join(
+    longitudinal_meta %>% select(subjectID, gid_wgs, country),
+    by = "gid_wgs"
+  )
+
+ggplot(plot_df, aes(
+  y = relab,
+  x = country,
+  fill = country
+)) +
+  geom_violin(scale = "count", quantile.linetype = 1) +
+  facet_wrap(~ feature, scales="free_y", nrow = 2) +
+  labs(x= "", y= "Relative abundance") +
+  theme_bw() + theme(legend.position = "none")
+ggsave("results/6c_longitudinal_maaslin_diff_abundance_raw.png", width = 12, height = 6, dpi = 600)
+
+ggplot(plot_df, aes(
+  y=(relab + 1e-50), # add pseudo-count for plotting 0 values on log scale
+  x=country,
+  fill=country
+)) +
+  geom_violin(scale = "count", quantile.linetype = 1) +
+  facet_wrap(~ feature, scales="free_y", nrow = 2) +
+  scale_y_log10() +
+  labs(x= "", y= "Relative abundance (log10)") +
+  theme_bw() + theme(legend.position = "none")
+ggsave("results/6c_longitudinal_maaslin_diff_abundance_log.png", width = 12, height = 6, dpi = 600)
