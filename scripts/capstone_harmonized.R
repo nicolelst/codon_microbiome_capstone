@@ -55,6 +55,8 @@ ggvenn::ggvenn(
     taxa_data   = colnames(taxa_data)
   )
 )
+ggsave("results/1c_samples_venn_diagram.png", width = 6, height = 4, dpi = 600)
+
 #--#--#---#--#--#--#--#--#--#--#--#--#
 keep_ids <- intersect(colnames(taxa_data) , rownames(metadata_filt))
 length(keep_ids)                # 785 samples ->  147 samples (gid_wgs)
@@ -128,6 +130,7 @@ ggplot(metadata_filt , aes(x = country , fill = allergy_milk)) +
   geom_bar(position = "fill") +
   labs(x = NULL, y = NULL) +
   scale_y_continuous(labels = scales::percent)
+ggsave("results/2a_milk_allergy_by_country_v1.png", width = 6, height = 6, dpi = 600)
 
 ##better looking version of 2A. ----
 ggplot(metadata_filt %>% tibble::as_tibble(),
@@ -144,6 +147,7 @@ ggplot(metadata_filt %>% tibble::as_tibble(),
   labs(x = "Country", y = "Number of children") +
   theme_minimal(base_size = 14) +
   theme(axis.text.x = element_text(angle = 20, hjust = 1))
+ggsave("results/2a_milk_allergy_by_country_v2.png", width = 6, height = 6, dpi = 600)
 
 
 ##Q2B Covariates across countries  ----
@@ -157,10 +161,13 @@ ggplot(metadata_covariates, aes(x = country, y = age_at_collection, fill = count
   geom_jitter(width = 0.15, alpha = 0.35, size = 1) +
   labs(x = "country", y = "age at collection (days)") +
   theme(legend.position = "none")
+ggsave("results/2b_age_at_collection_by_country.png", width = 6, height = 6, dpi = 600)
 
 #delivery distribution
 ggplot(metadata_covariates , aes(x = country  , fill = delivery)) +
   geom_bar( ) + labs( x = "country" , y = " type of delivery ")
+ggsave("results/2b_delivery_method_by_country_v1.png", width = 6, height = 6, dpi = 600)
+
 ##better version for delivery distribution ----
 ggplot(metadata_covariates %>% tibble::as_tibble(),
        aes(x = country, fill = delivery)) +
@@ -183,11 +190,13 @@ ggplot(metadata_covariates %>% tibble::as_tibble(),
     panel.grid.minor = element_blank(),
     plot.title = element_text(face = "bold")
   )
+ggsave("results/2b_delivery_method_by_country_v2.png", width = 6, height = 6, dpi = 600)
 
 
 #breast feeding distribution 
 ggplot(metadata_covariates , aes(x = country  , fill = Exclusive_breast_feeding)) + 
   geom_bar( ) + labs( x = "country" , y = "Breastfed children") # this is the simpler version of the chart 
+ggsave("results/2b_exclusive_breast_feeding_by_country_v1.png", width = 6, height = 6, dpi = 600)
 
 ##better version for breast feeding distribution ----
 df_bf <- metadata_covariates %>%
@@ -206,6 +215,7 @@ ggplot(df_bf, aes(x = country, y = n, color = Exclusive_breast_feeding)) +
             vjust = -0.6, size = 4) +
   labs(x = "Country", y = "Number of children", color = "Exclusive breastfeeding") +
   theme_minimal(base_size = 14)
+ggsave("results/2b_exclusive_breast_feeding_by_country_v2.png", width = 6, height = 6, dpi = 600)
 
 
 
@@ -277,7 +287,8 @@ res <- alpha_diversity_plot(
 metadata_filt <- res$metadata
 
 # plot
-res$plot
+print(res$plot)
+ggsave("results/3a_alpha_diversity_metrics_by_country.png", res$plot, width = 6, height = 6, dpi = 600)
 
 
 ## Q3c beta diversity across countries ----
@@ -375,8 +386,11 @@ res_bray <- beta_diversity_pcoa(
   method = "bray"
 )
 
-res_bray$plot_country
-res_bray$plot_age
+print(res_bray$plot_country)
+ggsave("results/3c_bray_pcoa_by_country.png", res_bray$plot_country, width = 6, height = 6, dpi = 600)
+
+print(res_bray$plot_age)
+ggsave("results/3c_bray_pcoa_by_age.png", res_bray$plot_age, width = 6, height = 6, dpi = 600)
 
 
 
@@ -387,8 +401,11 @@ res_jaccard <- beta_diversity_pcoa(
   method = "jaccard"
 )
 
-res_jaccard$plot_country
-res_jaccard$plot_age
+print(res_jaccard$plot_country)
+ggsave("results/3c_jaccard_pcoa_by_country.png", res_jaccard$plot_country, width = 6, height = 6, dpi = 600)
+
+print(res_jaccard$plot_age)
+ggsave("results/3c_jaccard_pcoa_by_age.png", res_jaccard$plot_age, width = 6, height = 6, dpi = 600)
 
 
 ## Q3d PERMANOVA ----
@@ -411,6 +428,11 @@ permanova <- adonis2(
   by = "terms",
   na.action = na.omit
 )
+print(permanova)
+
+sink("results/3d_bray_permanova_adonis2.txt") # save results
+print(permanova)
+sink(NULL)
 
 rm(dist_mat, meta, res, res_bray, res_jaccard, permanova)
 
@@ -490,7 +512,8 @@ res_top <- top_species_barplot(
   top_n = 15
 )
 
-res_top$plot
+print(res_top$plot)
+ggsave("results/4a_top_15_species_by_country.png", res_top$plot, width = 8, height = 4, dpi = 600)
 
 rm(res_top)
 
@@ -587,7 +610,6 @@ plot_maaslin_diff_abundance <- function(maaslin_results,
                                         q_cutoff = 0.01,
                                         pseudocount = 1e-6){
   
-  
   # ---- sanity check ----
   stopifnot(
     identical(rownames(metadata),
@@ -668,9 +690,14 @@ vis_maas <- plot_maaslin_diff_abundance(
   group_var = "country"
 )
 
-vis_maas$raw_plot
-vis_maas$log_plot
-vis_maas$sig_table       # vector of significant taxa
+print(vis_maas$raw_plot)
+ggsave("results/4d_maaslin_diff_abundance_raw.png", vis_maas$raw_plot, width = 6, height = 6, dpi = 600)
+
+print(vis_maas$log_plot)
+ggsave("results/4d_maaslin_diff_abundance_log.png", vis_maas$log_plot, width = 6, height = 6, dpi = 600)
+
+print(vis_maas$sig_table)       # vector of significant taxa
+write.csv(vis_maas$sig_table, "results/4d_maaslin_diff_abundance_significant_species.csv", row.names = FALSE, quote = FALSE)
 
 rm(res_maas, vis_maas)
 
@@ -757,6 +784,7 @@ ggplot(metadata_pathway, aes(x = country, y = richnesspathway, fill = country)) 
   geom_jitter(width = 0.2, alpha = 1, size = 2) +
   labs(x = "Country", y = "Richness") +
   theme_bw() + theme(legend.position = "none")
+ggsave("results/5b_3a_pathway_richness_by_country.png", width = 6, height = 6, dpi = 600)
 
 ## Simpson
 metadata_pathway$simpson_diversity_pathway <- diversity(pathway_first_year, index = "simpson", MARGIN = 2)
@@ -767,6 +795,7 @@ ggplot(metadata_pathway, aes(x = country, y = simpson_diversity_pathway, fill = 
   geom_jitter(width = 0.2, alpha = 1, size = 2) +
   labs(x = "Country", y = "Simpson") +
   theme_bw() + theme(legend.position = "none")
+ggsave("results/5b_3a_pathway_simpson_diversity_by_country.png", width = 6, height = 6, dpi = 600)
 
 ## Shannon
 metadata_pathway$shannon_diversity_pathway <- diversity(pathway_first_year, index = "shannon", MARGIN = 2)
@@ -777,6 +806,7 @@ ggplot(metadata_pathway, aes(x = country, y = shannon_diversity_pathway, fill = 
   geom_jitter(width = 0.2, alpha = 1, size = 2) +
   labs(x = "Country", y = "Shannon") +
   theme_bw() + theme(legend.position = "none")
+ggsave("results/5b_3a_pathway_shannon_diversity_by_country.png", width = 6, height = 6, dpi = 600)
 
 ## Multiple alpha-diversity
 tmp_pathway <- metadata_pathway %>%
@@ -791,6 +821,7 @@ ggplot(tmp_pathway, aes(x = country, y = value, fill = country)) +
   stat_compare_means(method = "anova", label = "p.format", hjust = -0.5) +
   geom_jitter(width = 0.2, alpha = 1, size = 1) +
   theme_bw() + theme(legend.position = "none") + labs(x = NULL, y = NULL)
+ggsave("results/5b_3a_pathway_ALL_diversity_by_country.png", width = 6, height = 4, dpi = 600)
 
 rm(tmp_pathway)
 
@@ -822,6 +853,7 @@ ggplot(mdf_pathway, aes(x = PCoA1, y = PCoA2, colour = country)) +
   geom_point(size = 3, alpha = 0.75) +
   stat_ellipse(show.legend = FALSE) +
   labs(x = VE_pathway[1], y = VE_pathway[2]) + theme_bw()
+ggsave("results/5b_3c_pathway_bray_pcoa_by_country.png", width = 6, height = 6, dpi = 600)
 
 # Age
 ggplot(mdf_pathway, aes(x = PCoA1, y = PCoA2, colour = age)) +
@@ -829,6 +861,7 @@ ggplot(mdf_pathway, aes(x = PCoA1, y = PCoA2, colour = age)) +
   scale_colour_viridis_c(option = "plasma") +
   labs(x = VE_pathway[1], y = VE_pathway[2], colour = "Age (days)") +
   theme_bw()
+ggsave("results/5b_3c_pathway_bray_pcoa_by_age.png", width = 6, height = 6, dpi = 600)
 
 # If binning age into groups
 ggplot(mdf_pathway, aes(PCoA1, PCoA2, colour = age_bin)) +
@@ -836,6 +869,7 @@ ggplot(mdf_pathway, aes(PCoA1, PCoA2, colour = age_bin)) +
   stat_ellipse() +
   labs(x = VE_pathway[1], y = VE_pathway[2], colour = "Age group") +
   theme_bw()
+ggsave("results/5b_3c_pathway_bray_pcoa_by_age_groups.png", width = 6, height = 6, dpi = 600)
 
 rm(mdf_pathway, VE_pathway, bray_dist_pathway, bray_pcoa_pathway)
 
@@ -854,6 +888,10 @@ fit_adonis_pathway <- adonis2(bray_dist_pathway ~ country + age_at_collection + 
                               data = metadata_pathway, by="terms", na.action = na.omit)
 broom::tidy(fit_adonis_pathway) %>%
   knitr::kable()
+
+sink("results/5b_3d_pathway_bray_permanova_adonis2.txt") # save results
+print(fit_adonis_pathway)
+sink(NULL)
 
 rm(bray_dist_pathway, fit_adonis_pathway)
 
@@ -884,6 +922,8 @@ plot_path %>%
   geom_bar(stat = "identity", position = "stack", colour = "darkslategrey") +
   theme_bw() +
   ylab("Mean pathway relative abundance")
+ggsave("results/5b_4a_top_15_pathways_by_country.png", width = 6, height = 6, dpi = 600)
+
 
 rm(plot_path,top15_path, path_means)
 
@@ -1012,6 +1052,7 @@ ggplot(plot_sig_path,
   theme_bw() +
   theme(legend.position = "none", strip.text = element_text(hjust = 0)) +
   ylab("Pathway abundance (%)")
+ggsave("results/5b_4d_maaslin_diff_abundance_raw.png", width = 8, height = 4, dpi = 600)
 
 # Print q val table
 top8_table <- maaslin_results %>%
@@ -1079,6 +1120,7 @@ ggplot(lipidA_df,
     strip.text = element_text(face = "bold")
   ) +
   ylab("Pathway abundance (%)")
+ggsave("results/5c_lipid_pathway_abundance_by_country.png", width = 6, height = 6, dpi = 600)
 
 rm(lipidA_df)
 
@@ -1154,5 +1196,6 @@ ggplot(taxa_summary, aes(x = country, y = total_abundance, fill = pathway_specie
   ) +
   theme_bw() +
   theme(legend.position = "bottom")
+ggsave("results/5d_NAGLIPASYN_species_by_country.png", width = 12, height = 6, dpi = 600)
 
 rm(lipidA_taxa_df, lipidA_long, taxa_summary,maaslin_results, lipidA_paths)
