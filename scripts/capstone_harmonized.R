@@ -122,7 +122,6 @@ ggplot(metadata_filt , aes(x = country , fill = allergy_milk)) +
   scale_y_continuous(labels = scales::percent)
 
 ##better looking version of 2A. ----
-
 ggplot(metadata_filt %>% tibble::as_tibble(),
        aes(x = country, fill = factor(allergy_milk))) +
   geom_bar(position = position_dodge(width = 0.8), width = 0.7) +
@@ -211,9 +210,7 @@ alpha_diversity_plot <- function(metadata,
                                  species,
                                  group_var,
                                  facet_ncol = 3,
-                                 add_stats = TRUE) {
-
-
+                                 add_stats = TRUE) {  
   # ---- calculate alpha diversity ----
   metadata_out <- metadata %>%
     mutate(
@@ -284,7 +281,6 @@ beta_diversity_pcoa <- function(metadata,
                                 binary = TRUE,
                                 k = 2,
                                 ellipse = TRUE) {
-
 
   method <- match.arg(method)
   
@@ -420,8 +416,7 @@ top_species_barplot <- function(metadata,
                                 taxa_data,
                                 group_var,
                                 top_n = 15){
-
-
+  
   # ---- sanity check sample matching ----
   stopifnot(
     identical(rownames(metadata),
@@ -501,7 +496,7 @@ run_maaslin_country <- function(metadata,
                                 prevalence = 0.10,
                                 abundance = 0.001,
                                 q_cutoff = 0.01){
-
+  
   # ---- sanity check ----
   stopifnot(
     identical(rownames(metadata),
@@ -579,8 +574,8 @@ plot_maaslin_diff_abundance <- function(maaslin_results,
                                         group_var = "country",
                                         q_cutoff = 0.01,
                                         pseudocount = 1e-6){
-
-
+  
+  
   # ---- sanity check ----
   stopifnot(
     identical(rownames(metadata),
@@ -727,12 +722,14 @@ pathway_first_year <- pathway_tss %>%
 length(pathway_first_year) # should be 147
 
 # Simplifying pathway names (e.g. KDO-NAGLIPASYN-PWY: superpathway of (Kdo)2-lipid A biosynthesis -> KDO-NAGLIPASYN-PWY)
+# Also keep a Origional copy for future lookup table
+ori_pathway_filt <- pathway_first_year
 rownames(pathway_first_year) <- sub(":.*", "", rownames(pathway_first_year))
 
 metadata_pathway <- metadata_filt_gidwgs[match(common_ids_pathway,
                                                metadata_filt_gidwgs$gid_wgs), ]
 
-rm(capstone_pathway_data, capstone_pathway_tse, pathway, pathway_matrix, pathway_tss, pathway_filtered, common_ids_pathway, metadata_filt_gidwgs, pathway_matrix_df)
+rm(capstone_pathway_data, capstone_pathway_tse, pathway, pathway_matrix, pathway_tss, pathway_filtered, common_ids_pathway, metadata_filt_gidwgs)
 
 # 5b Task 3 ---------------------------------------------------------------
 ### b. Repeat the analyses from Tasks 3 and 4, addressing the same questions but from a functional pathway perspective
@@ -849,3 +846,300 @@ broom::tidy(fit_adonis_pathway) %>%
   knitr::kable()
 
 rm(bray_dist_pathway, fit_adonis_pathway)
+
+### Repeat of Task 4
+### a. Visualize the abundance of the top 15 species (ranked by mean abundance) 
+### for each country using stacked bar plots. What visual differences do you observe between countries?
+
+# Top 15 pathways by mean abundance
+path_means <- rowMeans(pathway_first_year)
+
+top15_path <- names(sort(path_means, decreasing = TRUE))[1:15]
+
+plot_path <- pathway_first_year[top15_path, , drop = FALSE] %>%
+  as.data.frame() %>%
+  rownames_to_column("pathway") %>%
+  pivot_longer(
+    cols = -pathway,
+    names_to = "sample_id",
+    values_to = "abundance"
+  ) %>%
+  left_join(metadata_pathway, by = c("sample_id" = "gid_wgs"))
+
+# Plot 
+plot_path %>%
+  group_by(country, pathway) %>%
+  summarise(mean_abundance = mean(abundance), .groups = "drop") %>%
+  ggplot(aes(x = country, y = mean_abundance, fill = pathway)) +
+  geom_bar(stat = "identity", position = "stack", colour = "darkslategrey") +
+  theme_bw() +
+  ylab("Mean pathway relative abundance")
+
+rm(plot_path,top15_path, path_means)
+
+# Comparing the barplot by country, Russia have less ileusyn PWY (L-isoleucine biosynthesis), 
+# but more PWY7222 (guanosine deoxyribonucleotides de novo biosynthesis II),
+# PWY7220 (adenosine deoxyribonucleotides de novo biosynthesis II)
+# and valsyn PWY (L-valine biosynthesis).
+# These pathways contribited to amino acid metabolism and DNA synthesis. 
+
+### b. Identify species with statistically significant differential abundance between countries 
+## [Use Russia as the reference group; significance threshold = 0.01; 
+## focus on species with abundance >0% in at least 10% of samples]
+
+# Differentially abundant pathways (MaAsLin2)
+# Extract clean pathway IDs
+path_ids <- sub("^([^:|]+).*", "\\1", rownames(ori_pathway_filt))
+
+# Create MaAsLin-style sanitized feature names
+mas_features <- path_ids %>%
+  gsub("[^A-Za-z0-9]", ".", .) %>%   # replace non-alphanumeric with .
+  gsub("\\.+", ".", .)               # collapse multiple dots
+
+# Build lookup table
+pathway_map <- data.frame(
+  pathway_id   = path_ids,           # PWY-7111
+  mas_feature  = mas_features,        # PWY.7111
+  original_name = rownames(ori_pathway_filt),
+  stringsAsFactors = FALSE
+)
+
+# Sanity check
+identical(rownames(pathway_first_year), pathway_map$pathway_id)
+
+# Create modeling metadata (subset only needed variables)
+sub_metadata <- metadata_pathway %>%
+  dplyr::select(
+    gid_wgs,
+    country,
+    age_at_collection,
+    gender,
+    delivery,
+    Exclusive_breast_feeding,
+    abx_first_year
+  )
+
+# Set rownames using gid_wgs for MaAsLin2
+rownames(sub_metadata) <- sub_metadata$gid_wgs
+sub_metadata$gid_wgs <- NULL
+
+# Align ordering with pathway matrix
+sub_metadata <- sub_metadata[colnames(pathway_first_year), ]
+all(colnames(pathway_first_year) == rownames(sub_metadata))
+
+# Run Maaslin2
+diff_path <- Maaslin2(
+  input_data = pathway_first_year,
+  input_metadata = sub_metadata,
+  output = "results/maaslin_pathways_renamed",
+  fixed_effects = c(
+    "country",
+    "age_at_collection",
+    "gender",
+    "delivery",
+    "Exclusive_breast_feeding",
+    "abx_first_year"
+  ),
+  normalization = "NONE",
+  transform = "LOG",
+  correction = "BH",
+  min_prevalence = 0.1, min_abundance = 0,
+  max_significance = 0.01,
+  plot_scatter = FALSE
+)
+
+rm(mas_features, path_ids)
+
+### c. Compare with original publication-> moved after d. 
+
+
+### d. Visualize differentially abundant pathways across countries
+maaslin_results <- read.delim(
+  "results/maaslin_pathways_renamed/all_results.tsv"
+) %>%
+  filter(metadata == "country", qval < 0.01) %>%
+  left_join(pathway_map, by = c("feature" = "mas_feature")) %>%
+  filter(!is.na(pathway_id)) %>%
+  distinct(pathway_id, .keep_all = TRUE) %>%   # one row per pathway
+  arrange(qval)
+
+# Pick top 8 paths
+top8_paths <- maaslin_results %>%
+  slice_head(n = 8) %>%
+  pull(pathway_id) %>%
+  intersect(rownames(pathway_first_year))
+
+# Subset filter_path using pathway_id
+plot_sig_path <- pathway_first_year[top8_paths, , drop = FALSE] %>%
+  t() %>%
+  as.data.frame() %>%
+  rownames_to_column("sample_id") %>%
+  pivot_longer(
+    cols = -sample_id,
+    names_to = "pathway_id",
+    values_to = "abundance"
+  ) %>%
+  left_join(metadata_pathway, by = c("sample_id" = "gid_wgs")) %>%
+  left_join(pathway_map, by = "pathway_id") %>%
+  mutate(
+    pathway_label = ifelse(
+      is.na(original_name),
+      pathway_id,
+      original_name
+    )
+  ) %>%
+  filter(!is.na(country))
+
+# Plot 
+ggplot(plot_sig_path,
+       aes(x = country, y = abundance, fill = country)) +
+  geom_boxplot(outlier.shape = NA, width = 0.6) +
+  geom_jitter(width = 0.1, height = 0.0004, size = 0.1, alpha = 0.15) +
+  facet_wrap(~ pathway_label, scales = "free_y") +
+  scale_y_continuous(labels = scales::label_number(suffix = "%")) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  ylab("Pathway abundance (%)")
+
+# Print q val table
+top8_table <- maaslin_results %>%
+  select(original_name, qval, coef) %>%
+  slice_head(n = 8)
+top8_table
+
+rm(sub_metadata, diff_path, plot_sig_path, top8_table, top8_paths)
+
+### c. Compare with original publication
+
+# Top 8 differential pathways by country (RUS as ref) suggestes: 
+# Lower folate biosynthesis (PWY-7539, PWY-6147)
+# Lower preQ0 biosynthesis (PWY-6703) -> lower tRNA modification
+# Lower flavin biosynthesis (PWY-6168) -> lower B2 production
+# Lower CDP-diacylglycerol biosynthesis (PWY-5667, PWY0-1319) -> lower membrane lipid precursor
+
+# In which, membrane lipid precursor may be relevant with the LPS and lipid A biothesis mentioned in Fig3A.
+
+# Also higher sucrose degradation IV (PWY-5384) -> higher carbohydrate breakdown
+# Higher UDP-N-acetyl-D-glucosamine biosynthesis (UDPNAGSYN-PWY) -> higher peptidoglycan (lipid A) precursor
+
+# In which, glycolysis process and lipid A biosynthetic process are also mentioned in the paper Fig3A. 
+
+### Bonus: In the original publication, the authors analyzed metagenomic data-derived GO terms 
+### and noted that "lipid A biosynthetic process (GO: 0009245) showed a striking difference in abundance 
+### between countries." Investigate whether you can detect similar differences using metaCyc pathway data
+
+# Select lipid A–related pathways
+lipidA_paths <- pathway_map %>%
+  filter(str_detect(original_name, regex("lipid|Lipid", ignore_case = TRUE))) %>%
+  pull(pathway_id) %>%
+  intersect(rownames(pathway_first_year)) 
+
+# Intersect with maaslin_results
+lipidA_paths <- intersect(maaslin_results$pathway_id, lipidA_paths)
+
+# Make plotting data frame.
+lipidA_df <- pathway_first_year[lipidA_paths, , drop = FALSE] %>%
+  t() %>%
+  as.data.frame() %>%
+  rownames_to_column("sample_id") %>%
+  pivot_longer(
+    cols = -sample_id,
+    names_to = "pathway_id",
+    values_to = "abundance"
+  ) %>%
+  left_join(metadata_pathway, by = c("sample_id" = "gid_wgs")) %>%
+  filter(!is.na(country))
+
+# Plot with stats
+ggplot(lipidA_df,
+       aes(x = country, y = abundance * 100, fill = country)) +
+  geom_boxplot(outlier.shape = NA, width = 0.6) +
+  geom_quasirandom(size = 0.5, alpha = 0.35) +
+  facet_wrap(~ pathway_id, scales = "free_y") +
+  scale_y_continuous(labels = scales::label_number(suffix = "%")) +
+  stat_compare_means(
+    method = "kruskal.test",
+    label = "p.format"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold")
+  ) +
+  ylab("Pathway abundance (%)")
+
+rm(lipidA_df)
+
+# NAGLIPASYN-PWY is significantly different between countries (lower in Russia)
+# This pathway is relevent with cell wall peptidoglycan synthesis, a precursor 
+# For Lipid A biosynthetic process. That is similar to the authors' conclusion.
+
+### d. Bonus: If yes for 5c, please identify the top species or 
+### genera contributing to the lipid A biosynthesis pathway. 
+
+# Focus on the NAGLIPASYN-PWY
+lipidA_taxa_df <- pathway_matrix_df %>%
+  rownames_to_column("pathway_taxa") %>%
+  filter(grepl(paste0("^", lipidA_paths, ":"), pathway_taxa) |
+           grepl(paste0("^", lipidA_paths, "\\|"), pathway_taxa))
+
+lipidA_taxa_df <- lipidA_taxa_df %>% 
+  filter(grepl("\\|", pathway_taxa))
+
+lipidA_long <- lipidA_taxa_df %>%
+  pivot_longer(
+    cols = -pathway_taxa,
+    names_to = "sample_id",
+    values_to = "abundance"
+  )
+
+# Extract genus and species from the row names
+lipidA_long <- lipidA_long %>%
+  mutate(
+    pathway_genus = ifelse(grepl("\\|", pathway_taxa),
+                           gsub("^.*\\|g__([^.]+)\\..*$", "\\1", pathway_taxa),
+                           NA),
+    pathway_species = ifelse(grepl("\\|", pathway_taxa),
+                             gsub("^.*\\.s__([^.]+).*$", "\\1", pathway_taxa),
+                             NA)
+  )
+
+# 4. Add metadata (country)
+lipidA_long <- lipidA_long %>%
+  left_join(metadata_pathway %>% select(gid_wgs, country),
+            by = c("sample_id" = "gid_wgs")) %>%
+  filter(!is.na(country))
+
+# Aggregate mean abundance per genus/species per country
+taxa_summary <- lipidA_long %>%
+  # remove rows where genus or species is NA or unclassified
+  filter(
+    !is.na(pathway_genus), !is.na(pathway_species),
+    !grepl("unclassified", pathway_genus, ignore.case = TRUE),
+    !grepl("unclassified", pathway_species, ignore.case = TRUE)
+  ) %>%
+  group_by(country, pathway_species) %>%
+  summarise(total_abundance = sum(abundance), .groups = "drop")
+
+# Order by abundance 
+taxa_summary$pathway_species <- factor(
+  taxa_summary$pathway_species,
+  levels = taxa_summary %>% 
+    group_by(pathway_species) %>% 
+    summarise(total = sum(total_abundance)) %>% 
+    arrange(desc(total)) %>% 
+    pull(pathway_species)
+)
+
+# Plot stacked bar by country
+ggplot(taxa_summary, aes(x = country, y = total_abundance, fill = pathway_species)) +
+  geom_bar(stat = "identity", position = "stack", colour = "darkslategrey") +
+  labs(
+    x = "Country",
+    y = "Total contribution to NAGLIPASYN-PWY",
+    fill = "Species"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+rm(lipidA_taxa_df, lipidA_long, taxa_summary,maaslin_results, lipidA_paths)
